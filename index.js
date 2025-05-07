@@ -4,6 +4,7 @@ const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const cloudinary = require("cloudinary").v2;
 const { exec } = require("child_process");
+const path = require("path");
 
 const app = express();
 app.use(express.json());
@@ -25,7 +26,7 @@ app.post("/merge-audio", async (req, res) => {
   try {
     fs.mkdirSync(tempDir);
     for (let i = 0; i < files.length; i++) {
-      const filePath = `${tempDir}/part${i}.mp3`;
+      const filePath = path.join(tempDir, `part${i}.mp3`);
       console.log(`⬇️ Downloading: ${files[i]}`);
       const response = await axios.get(files[i], { responseType: "stream" });
 
@@ -46,11 +47,11 @@ app.post("/merge-audio", async (req, res) => {
       paths.push(filePath);
     }
 
-    const listFile = `${tempDir}/list.txt`;
+    const listFile = path.join(tempDir, "list.txt");
     fs.writeFileSync(listFile, paths.map(p => `file '${p}'`).join("\n"));
-    console.log("📃 Created list.txt");
+    console.log("📃 Created list.txt:", listFile);
 
-    const outputPath = `${tempDir}/${outputName}`;
+    const outputPath = path.join(tempDir, outputName);
     console.log("🎬 Running FFmpeg...");
     await new Promise((resolve, reject) => {
       exec(`ffmpeg -f concat -safe 0 -i ${listFile} -c copy ${outputPath}`, (error) => {
