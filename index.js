@@ -21,9 +21,9 @@ app.post("/merge-audio", async (req, res) => {
   const tempDir = `temp_${uuidv4()}`;
   fs.mkdirSync(tempDir);
 
-
   try {
     const paths = [];
+
     for (let i = 0; i < files.length; i++) {
       const filePath = `${tempDir}/part${i}.mp3`;
       const response = await axios.get(files[i], { responseType: "stream" });
@@ -39,7 +39,6 @@ app.post("/merge-audio", async (req, res) => {
     const listFile = `${tempDir}/list.txt`;
     fs.writeFileSync(listFile, paths.map(p => `file '${p}'`).join("\n"));
 
-
     const outputPath = `${tempDir}/${outputName}`;
     await new Promise((resolve, reject) => {
       exec(`ffmpeg -f concat -safe 0 -i ${listFile} -c copy ${outputPath}`, (error) => {
@@ -54,7 +53,9 @@ app.post("/merge-audio", async (req, res) => {
     });
 
     res.json({ finalUrl: result.secure_url });
+
   } catch (err) {
+    console.error("🔥 Server error:", err.message);
     res.status(500).json({ error: err.message });
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
