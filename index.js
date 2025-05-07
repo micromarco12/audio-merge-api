@@ -67,10 +67,11 @@ app.post("/merge-audio", async (req, res) => {
       });
     });
 
-    const result = await cloudinary.uploader.upload(path.join(tempDir, outputName), {
-      resource_type: "video",
-      public_id: outputName.replace(".mp3", ""),
-    });
+const result = await cloudinary.uploader.upload(path.join(tempDir, outputName), {
+  resource_type: "video",
+  folder: "audio-webflow",
+  public_id: outputName.replace(".mp3", ""),
+});
 
     console.log("☁️ Uploaded to Cloudinary");
     res.json({ finalUrl: result.secure_url });
