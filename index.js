@@ -67,13 +67,25 @@ app.post("/merge-audio", async (req, res) => {
       });
     });
 
-const result = await cloudinary.uploader.upload(path.join(tempDir, outputName), {
-  resource_type: "video",
-  folder: "audio-webflow",
-  public_id: outputName.replace(".mp3", ""),
-});
+    const result = await cloudinary.uploader.upload(path.join(tempDir, outputName), {
+      resource_type: "video",
+      folder: "audio-webflow",
+      public_id: outputName.replace(".mp3", ""),
+    });
 
     console.log("☁️ Uploaded to Cloudinary");
+
+    // 🧹 Cloudinary cleanup: Delete all chunked files from FFmpeg-converter/
+    try {
+      const cleanup = await cloudinary.api.delete_resources_by_prefix("FFmpeg-converter/", {
+        resource_type: "video",
+        invalidate: true
+      });
+      console.log("🧹 Deleted chunked files:", cleanup);
+    } catch (cleanupError) {
+      console.error("❌ Cloudinary cleanup failed:", cleanupError.message);
+    }
+
     res.json({ finalUrl: result.secure_url });
 
   } catch (err) {
