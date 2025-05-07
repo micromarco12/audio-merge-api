@@ -48,13 +48,16 @@ app.post("/merge-audio", async (req, res) => {
     }
 
     const listFile = path.join(tempDir, "list.txt");
-    fs.writeFileSync(listFile, paths.map(p => `file '${p}'`).join("\n"));
+    fs.writeFileSync(
+      listFile,
+      paths.map(p => `file '${path.basename(p)}'`).join("\n")
+    );
     console.log("📃 Created list.txt:", listFile);
 
     const outputPath = path.join(tempDir, outputName);
     console.log("🎬 Running FFmpeg...");
     await new Promise((resolve, reject) => {
-      exec(`ffmpeg -f concat -safe 0 -i ${listFile} -c copy ${outputPath}`, (error) => {
+      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${outputName}`, (error) => {
         if (error) {
           console.error("🔥 FFmpeg error:", error.message);
           reject(error);
@@ -65,7 +68,7 @@ app.post("/merge-audio", async (req, res) => {
       });
     });
 
-    const result = await cloudinary.uploader.upload(outputPath, {
+    const result = await cloudinary.uploader.upload(path.join(tempDir, outputName), {
       resource_type: "video",
       public_id: outputName.replace(".mp3", ""),
     });
