@@ -34,8 +34,8 @@ app.post("/merge-audio", async (req, res) => {
     }
 
     const listFile = `${tempDir}/list.txt`;
-    fs.writeFileSync(listFile, paths.map(p => `file '${p}'`).join("
-"));
+    fs.writeFileSync(listFile, paths.map(p => `file '${p}'`).join("\n"));
+
 
     const outputPath = `${tempDir}/${outputName}`;
     await new Promise((resolve, reject) => {
