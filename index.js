@@ -15,9 +15,12 @@ cloudinary.config({
 });
 
 app.post("/merge-audio", async (req, res) => {
+  console.log("✅ Received POST /merge-audio request");
+
   const { files, outputName } = req.body;
   const tempDir = `temp_${uuidv4()}`;
   fs.mkdirSync(tempDir);
+
 
   try {
     const paths = [];
