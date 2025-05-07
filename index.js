@@ -54,7 +54,6 @@ app.post("/merge-audio", async (req, res) => {
     );
     console.log("📃 Created list.txt:", listFile);
 
-    const outputPath = path.join(tempDir, outputName);
     console.log("🎬 Running FFmpeg...");
     await new Promise((resolve, reject) => {
       exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${outputName}`, (error) => {
