@@ -6,7 +6,7 @@ const cloudinary = require("cloudinary").v2;
 const { exec } = require("child_process");
 
 const app = express();
-app.use(express.json());
+app.use(express.json()); // This line is critical for parsing JSON
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -15,13 +15,15 @@ cloudinary.config({
 });
 
 app.post("/merge-audio", async (req, res) => {
-  console.log("✅ Received POST /merge-audio request");
-
-  const { files, outputName } = req.body;
-  const tempDir = `temp_${uuidv4()}`;
-  fs.mkdirSync(tempDir);
+  console.log("🟡 Incoming request");
 
   try {
+    console.log("📦 Raw body:", req.body);
+
+    const { files, outputName } = req.body;
+    const tempDir = `temp_${uuidv4()}`;
+    fs.mkdirSync(tempDir);
+
     const paths = [];
 
     for (let i = 0; i < files.length; i++) {
