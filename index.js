@@ -19,7 +19,7 @@ app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
   console.log("📦 Raw body:", req.body);
 
-  const { files, outputName } = req.body;
+  const { files, outputName, bitrate, silence } = req.body;
   const tempDir = `temp_${uuidv4()}`;
   let paths = [];
 
@@ -48,24 +48,51 @@ app.post("/merge-audio", async (req, res) => {
     }
 
     const listFile = path.join(tempDir, "list.txt");
-    fs.writeFileSync(
-      listFile,
-      paths.map(p => `file '${path.basename(p)}'`).join("\n")
-    );
-    console.log("📃 Created list.txt:", listFile);
 
-    console.log("🎬 Running FFmpeg...");
-    await new Promise((resolve, reject) => {
-      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${outputName}`, (error) => {
-        if (error) {
-          console.error("🔥 FFmpeg error:", error.message);
-          reject(error);
-        } else {
-          console.log("✅ FFmpeg completed");
-          resolve();
-        }
+    if (silence) {
+      const concatInputs = paths.map((p, i) => `-i ${path.basename(p)}`).join(" ");
+      const concatLabels = paths.map((_, i) => `[${i}:0]`).join("");
+      const concatFilter = `${concatLabels}concat=n=${paths.length}:v=0:a=1[out]`;
+      const bitrateArg = bitrate ? `-b:a ${bitrate}` : "";
+      const cmd = `cd ${tempDir} && ffmpeg ${concatInputs} -filter_complex "${concatFilter}" -map "[out]" ${bitrateArg} ${outputName}`;
+
+      fs.writeFileSync(listFile, ""); // not used, but kept clean
+
+      console.log("🎬 Running FFmpeg with silence...");
+      await new Promise((resolve, reject) => {
+        exec(cmd, (error) => {
+          if (error) {
+            console.error("🔥 FFmpeg error:", error.message);
+            reject(error);
+          } else {
+            console.log("✅ FFmpeg completed");
+            resolve();
+          }
+        });
       });
-    });
+
+    } else {
+      fs.writeFileSync(
+        listFile,
+        paths.map(p => `file '${path.basename(p)}'`).join("\n")
+      );
+
+      const bitrateArg = bitrate ? `-b:a ${bitrate}` : "";
+      const cmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${bitrateArg} ${outputName}`;
+
+      console.log("🎬 Running FFmpeg...");
+      await new Promise((resolve, reject) => {
+        exec(cmd, (error) => {
+          if (error) {
+            console.error("🔥 FFmpeg error:", error.message);
+            reject(error);
+          } else {
+            console.log("✅ FFmpeg completed");
+            resolve();
+          }
+        });
+      });
+    }
 
     const result = await cloudinary.uploader.upload(path.join(tempDir, outputName), {
       resource_type: "video",
@@ -75,7 +102,6 @@ app.post("/merge-audio", async (req, res) => {
 
     console.log("☁️ Uploaded to Cloudinary");
 
-    // 🧹 Cloudinary cleanup: Delete all chunked files from FFmpeg-converter/
     try {
       const cleanup = await cloudinary.api.delete_resources_by_prefix("FFmpeg-converter/", {
         resource_type: "video",
