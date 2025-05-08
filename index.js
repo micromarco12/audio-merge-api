@@ -54,7 +54,7 @@ app.post("/merge-audio", async (req, res) => {
     if (silence) {
       // 🔇 Create 1-second silent MP3
       const silencePath = path.join(tempDir, "silence.mp3");
-      execSync(`ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 3 -q:a 9 -acodec libmp3lame ${silencePath}`);
+      execSync(`ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 10 -q:a 9 -acodec libmp3lame ${silencePath}`);
 
       // 🔁 Interleave silence between audio parts
       let pathsWithGaps = [];
