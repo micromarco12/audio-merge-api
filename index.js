@@ -56,7 +56,7 @@ app.post("/merge-audio", async (req, res) => {
 
     console.log("🎬 Running FFmpeg...");
     await new Promise((resolve, reject) => {
-      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${outputName}`, (error) => {
+      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -codec:a libmp3lame -b:a 192k ${outputName}`, (error) => {
         if (error) {
           console.error("🔥 FFmpeg error:", error.message);
           reject(error);
