@@ -40,7 +40,7 @@ app.post("/merge-audio", async (req, res) => {
           resolve();
         });
         writer.on("error", (err) => {
-          console.error(`❌ Error saving ${filePath}", err.message);
+          console.error(`❌ Error saving ${filePath}`, err.message);
           reject(err);
         });
       });
