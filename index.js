@@ -1,4 +1,3 @@
-require('dotenv').config();
 const express = require("express");
 const axios = require("axios");
 const fs = require("fs");
@@ -20,7 +19,7 @@ app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
   console.log("📦 Raw body:", req.body);
 
-  const { files, outputName, bitrate = "192k", silence = 0, targetFolder = "audio-webflow" } = req.body;
+  const { files, outputName } = req.body;
   const tempDir = `temp_${uuidv4()}`;
   let paths = [];
 
@@ -46,17 +45,6 @@ app.post("/merge-audio", async (req, res) => {
       });
 
       paths.push(filePath);
-
-      if (parseInt(silence) > 0 && i < files.length - 1) {
-        const silencePath = path.join(tempDir, `silence${i}.mp3`);
-        await new Promise((resolve, reject) => {
-          exec(`ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t ${silence} -q:a 9 -acodec libmp3lame ${silencePath}`, err => {
-            if (err) reject(err);
-            else resolve();
-          });
-        });
-        paths.push(silencePath);
-      }
     }
 
     const listFile = path.join(tempDir, "list.txt");
@@ -68,7 +56,7 @@ app.post("/merge-audio", async (req, res) => {
 
     console.log("🎬 Running FFmpeg...");
     await new Promise((resolve, reject) => {
-      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -b:a ${bitrate} -c copy ${outputName}`, (error) => {
+      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${outputName}`, (error) => {
         if (error) {
           console.error("🔥 FFmpeg error:", error.message);
           reject(error);
@@ -81,11 +69,23 @@ app.post("/merge-audio", async (req, res) => {
 
     const result = await cloudinary.uploader.upload(path.join(tempDir, outputName), {
       resource_type: "video",
-      folder: targetFolder,
+      folder: "audio-webflow",
       public_id: outputName.replace(".mp3", ""),
     });
 
     console.log("☁️ Uploaded to Cloudinary");
+
+    // 🧹 Cloudinary cleanup: Delete all chunked files from FFmpeg-converter/
+    try {
+      const cleanup = await cloudinary.api.delete_resources_by_prefix("FFmpeg-converter/", {
+        resource_type: "video",
+        invalidate: true
+      });
+      console.log("🧹 Deleted chunked files:", cleanup);
+    } catch (cleanupError) {
+      console.error("❌ Cloudinary cleanup failed:", cleanupError.message);
+    }
+
     res.json({ finalUrl: result.secure_url });
 
   } catch (err) {
