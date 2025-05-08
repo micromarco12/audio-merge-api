@@ -3,7 +3,7 @@ const axios = require("axios");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const cloudinary = require("cloudinary").v2;
-const { exec, execSync } = require("child_process");
+const { exec } = require("child_process");
 const path = require("path");
 
 const app = express();
@@ -15,14 +15,11 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// 🔧 CHANGE THIS to adjust silence gap (in seconds)
-const SILENCE_DURATION = 5.0;
-
 app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
   console.log("📦 Raw body:", req.body);
 
-  const { files, outputName, bitrate } = req.body;
+  const { files, outputName } = req.body;
   const tempDir = `temp_${uuidv4()}`;
   let paths = [];
 
@@ -51,32 +48,15 @@ app.post("/merge-audio", async (req, res) => {
     }
 
     const listFile = path.join(tempDir, "list.txt");
-
-    // 🔇 Always generate silence
-    const silencePath = path.join(tempDir, "silence.mp3");
-    execSync(`ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t ${SILENCE_DURATION} -q:a 9 -acodec libmp3lame ${silencePath}`);
-    console.log(`🎧 Generated ${SILENCE_DURATION}s silence.mp3`);
-
-    // 🔁 Interleave silence between tracks
-    let pathsWithGaps = [];
-    for (let i = 0; i < paths.length; i++) {
-      pathsWithGaps.push(paths[i]);
-      if (i < paths.length - 1) {
-        pathsWithGaps.push(silencePath);
-      }
-    }
-
     fs.writeFileSync(
       listFile,
-      pathsWithGaps.map(p => `file '${path.basename(p)}'`).join("\n")
+      paths.map(p => `file '${path.basename(p)}'`).join("\n")
     );
-
-    const bitrateArg = bitrate ? `-b:a ${bitrate}` : "";
-    const cmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${bitrateArg} ${outputName}`;
+    console.log("📃 Created list.txt:", listFile);
 
     console.log("🎬 Running FFmpeg...");
     await new Promise((resolve, reject) => {
-      exec(cmd, (error) => {
+      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${outputName}`, (error) => {
         if (error) {
           console.error("🔥 FFmpeg error:", error.message);
           reject(error);
@@ -95,6 +75,7 @@ app.post("/merge-audio", async (req, res) => {
 
     console.log("☁️ Uploaded to Cloudinary");
 
+    // 🧹 Cloudinary cleanup: Delete all chunked files from FFmpeg-converter/
     try {
       const cleanup = await cloudinary.api.delete_resources_by_prefix("FFmpeg-converter/", {
         resource_type: "video",
