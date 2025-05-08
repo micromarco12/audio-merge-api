@@ -3,7 +3,7 @@ const axios = require("axios");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const cloudinary = require("cloudinary").v2;
-const { exec, execSync } = require("child_process"); // <- updated
+const { exec, execSync } = require("child_process");
 const path = require("path");
 
 const app = express();
@@ -15,11 +15,14 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// 🔧 CHANGE THIS to adjust silence gap (in seconds)
+const SILENCE_DURATION = 0.25;
+
 app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
   console.log("📦 Raw body:", req.body);
 
-  const { files, outputName, bitrate, silence } = req.body;
+  const { files, outputName, bitrate } = req.body;
   const tempDir = `temp_${uuidv4()}`;
   let paths = [];
 
@@ -49,31 +52,25 @@ app.post("/merge-audio", async (req, res) => {
 
     const listFile = path.join(tempDir, "list.txt");
 
-    let finalPaths = [...paths];
+    // 🔇 Always generate silence
+    const silencePath = path.join(tempDir, "silence.mp3");
+    execSync(`ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t ${SILENCE_DURATION} -q:a 9 -acodec libmp3lame ${silencePath}`);
+    console.log(`🎧 Generated ${SILENCE_DURATION}s silence.mp3`);
 
-    if (silence) {
-      // 🔇 Create 1-second silent MP3
-      const silencePath = path.join(tempDir, "silence.mp3");
-      execSync(`ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 10 -q:a 9 -acodec libmp3lame ${silencePath}`);
-
-      // 🔁 Interleave silence between audio parts
-      let pathsWithGaps = [];
-      for (let i = 0; i < paths.length; i++) {
-        pathsWithGaps.push(paths[i]);
-        if (i < paths.length - 1) {
-          pathsWithGaps.push(silencePath);
-        }
+    // 🔁 Interleave silence between tracks
+    let pathsWithGaps = [];
+    for (let i = 0; i < paths.length; i++) {
+      pathsWithGaps.push(paths[i]);
+      if (i < paths.length - 1) {
+        pathsWithGaps.push(silencePath);
       }
-      finalPaths = pathsWithGaps;
     }
 
-    // 📃 Write the final list.txt file
     fs.writeFileSync(
       listFile,
-      finalPaths.map(p => `file '${path.basename(p)}'`).join("\n")
+      pathsWithGaps.map(p => `file '${path.basename(p)}'`).join("\n")
     );
 
-    // 🎬 Build FFmpeg command
     const bitrateArg = bitrate ? `-b:a ${bitrate}` : "";
     const cmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${bitrateArg} ${outputName}`;
 
