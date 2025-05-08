@@ -16,7 +16,7 @@ cloudinary.config({
 });
 
 // 🔧 CHANGE THIS to adjust silence gap (in seconds)
-const SILENCE_DURATION = 0.25;
+const SILENCE_DURATION = 5.0;
 
 app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
