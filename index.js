@@ -3,7 +3,7 @@ const axios = require("axios");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const cloudinary = require("cloudinary").v2;
-const { exec } = require("child_process");
+const { exec, execSync } = require("child_process"); // <- updated
 const path = require("path");
 
 const app = express();
@@ -49,50 +49,46 @@ app.post("/merge-audio", async (req, res) => {
 
     const listFile = path.join(tempDir, "list.txt");
 
+    let finalPaths = [...paths];
+
     if (silence) {
-      const concatInputs = paths.map((p, i) => `-i ${path.basename(p)}`).join(" ");
-      const concatLabels = paths.map((_, i) => `[${i}:0]`).join("");
-      const concatFilter = `${concatLabels}concat=n=${paths.length}:v=0:a=1[out]`;
-      const bitrateArg = bitrate ? `-b:a ${bitrate}` : "";
-      const cmd = `cd ${tempDir} && ffmpeg ${concatInputs} -filter_complex "${concatFilter}" -map "[out]" ${bitrateArg} ${outputName}`;
+      // 🔇 Create 1-second silent MP3
+      const silencePath = path.join(tempDir, "silence.mp3");
+      execSync(`ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1 -q:a 9 -acodec libmp3lame ${silencePath}`);
 
-      fs.writeFileSync(listFile, ""); // not used, but kept clean
-
-      console.log("🎬 Running FFmpeg with silence...");
-      await new Promise((resolve, reject) => {
-        exec(cmd, (error) => {
-          if (error) {
-            console.error("🔥 FFmpeg error:", error.message);
-            reject(error);
-          } else {
-            console.log("✅ FFmpeg completed");
-            resolve();
-          }
-        });
-      });
-
-    } else {
-      fs.writeFileSync(
-        listFile,
-        paths.map(p => `file '${path.basename(p)}'`).join("\n")
-      );
-
-      const bitrateArg = bitrate ? `-b:a ${bitrate}` : "";
-      const cmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${bitrateArg} ${outputName}`;
-
-      console.log("🎬 Running FFmpeg...");
-      await new Promise((resolve, reject) => {
-        exec(cmd, (error) => {
-          if (error) {
-            console.error("🔥 FFmpeg error:", error.message);
-            reject(error);
-          } else {
-            console.log("✅ FFmpeg completed");
-            resolve();
-          }
-        });
-      });
+      // 🔁 Interleave silence between audio parts
+      let pathsWithGaps = [];
+      for (let i = 0; i < paths.length; i++) {
+        pathsWithGaps.push(paths[i]);
+        if (i < paths.length - 1) {
+          pathsWithGaps.push(silencePath);
+        }
+      }
+      finalPaths = pathsWithGaps;
     }
+
+    // 📃 Write the final list.txt file
+    fs.writeFileSync(
+      listFile,
+      finalPaths.map(p => `file '${path.basename(p)}'`).join("\n")
+    );
+
+    // 🎬 Build FFmpeg command
+    const bitrateArg = bitrate ? `-b:a ${bitrate}` : "";
+    const cmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${bitrateArg} ${outputName}`;
+
+    console.log("🎬 Running FFmpeg...");
+    await new Promise((resolve, reject) => {
+      exec(cmd, (error) => {
+        if (error) {
+          console.error("🔥 FFmpeg error:", error.message);
+          reject(error);
+        } else {
+          console.log("✅ FFmpeg completed");
+          resolve();
+        }
+      });
+    });
 
     const result = await cloudinary.uploader.upload(path.join(tempDir, outputName), {
       resource_type: "video",
