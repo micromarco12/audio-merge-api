@@ -35,7 +35,7 @@ app.post("/merge-audio", async (req, res) => {
   const compression = true;
 
   const compressor = compression
-    ? "acompressor=threshold=-20dB:ratio=3:attack=10:release=200:makeup=4"
+    ? "acompressor=threshold=-40dB:ratio=20:attack=1:release=50:makeup=15"
     : "";
 
   const tempDir = `temp_${uuidv4()}`;
