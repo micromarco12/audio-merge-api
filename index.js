@@ -43,7 +43,7 @@ app.post("/merge-audio", async (req, res) => {
 
   const { files, outputName, preset = "normal" } = req.body;
 
-  const silenceMs = 300;
+  const silenceMs = 150;
   const fadeMs = 150;
   const applyCompression = true;
 
