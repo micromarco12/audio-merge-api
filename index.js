@@ -20,6 +20,16 @@ app.post("/merge-audio", async (req, res) => {
   console.log("📦 Raw body:", req.body);
 
   const { files, outputName } = req.body;
+
+  // Hardcoded settings
+  const silenceMs = 300;         // Add 300ms of silence between clips
+  const fadeMs = 150;            // Add 150ms fade in/out per clip
+  const compression = true;      // Enable FFmpeg compression
+
+  const compressor = compression
+    ? "-af 'acompressor=threshold=-20dB:ratio=3:attack=10:release=200:makeup=4'"
+    : "";
+
   const tempDir = `temp_${uuidv4()}`;
   let paths = [];
 
@@ -44,7 +54,34 @@ app.post("/merge-audio", async (req, res) => {
         });
       });
 
-      paths.push(filePath);
+      if (fadeMs > 0) {
+        const fadedPath = path.join(tempDir, `faded${i}.mp3`);
+        await new Promise((resolve, reject) => {
+          exec(`ffmpeg -i ${filePath} -af "afade=t=in:ss=0:d=${fadeMs / 1000},afade=t=out:st=0:d=${fadeMs / 1000}" -y ${fadedPath}`, (error) => {
+            if (error) reject(error);
+            else {
+              fs.unlinkSync(filePath);
+              paths.push(fadedPath);
+              resolve();
+            }
+          });
+        });
+      } else {
+        paths.push(filePath);
+      }
+
+      if (silenceMs > 0 && i < files.length - 1) {
+        const silencePath = path.join(tempDir, `silence${i}.mp3`);
+        await new Promise((resolve, reject) => {
+          exec(`ffmpeg -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -t ${silenceMs / 1000} -q:a 9 -y ${silencePath}`, (error) => {
+            if (error) reject(error);
+            else {
+              paths.push(silencePath);
+              resolve();
+            }
+          });
+        });
+      }
     }
 
     const listFile = path.join(tempDir, "list.txt");
@@ -54,20 +91,23 @@ app.post("/merge-audio", async (req, res) => {
     );
     console.log("📃 Created list.txt:", listFile);
 
-    console.log("🎬 Running FFmpeg...");
+    const outputRaw = path.join(tempDir, `raw_${outputName}`);
     await new Promise((resolve, reject) => {
-      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${outputName}`, (error) => {
-        if (error) {
-          console.error("🔥 FFmpeg error:", error.message);
-          reject(error);
-        } else {
-          console.log("✅ FFmpeg completed");
-          resolve();
-        }
+      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${outputRaw}`, (error) => {
+        if (error) reject(error);
+        else resolve();
       });
     });
 
-    const result = await cloudinary.uploader.upload(path.join(tempDir, outputName), {
+    const finalPath = path.join(tempDir, outputName);
+    await new Promise((resolve, reject) => {
+      exec(`ffmpeg -i ${outputRaw} ${compressor} -y ${finalPath}`, (error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+
+    const result = await cloudinary.uploader.upload(finalPath, {
       resource_type: "video",
       folder: "audio-webflow",
       public_id: outputName.replace(".mp3", ""),
@@ -75,7 +115,6 @@ app.post("/merge-audio", async (req, res) => {
 
     console.log("☁️ Uploaded to Cloudinary");
 
-    // 🧹 Cloudinary cleanup: Delete all chunked files from FFmpeg-converter/
     try {
       const cleanup = await cloudinary.api.delete_resources_by_prefix("FFmpeg-converter/", {
         resource_type: "video",
