@@ -90,10 +90,11 @@ app.post("/merge-audio", async (req, res) => {
       paths.map(p => `file '${path.basename(p)}'`).join("\n")
     );
     console.log("📃 Created list.txt:", listFile);
+    console.log("🧾 list.txt contents:\n", fs.readFileSync(listFile, 'utf8'));
 
     const outputRaw = path.join(tempDir, `raw_${outputName}`);
     await new Promise((resolve, reject) => {
-      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${outputRaw}`, (error) => {
+      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -acodec libmp3lame -y ${outputRaw}`, (error) => {
         if (error) reject(error);
         else resolve();
       });
