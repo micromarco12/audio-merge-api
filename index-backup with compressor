@@ -41,7 +41,7 @@ app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
   console.log("📦 Raw body:", req.body);
 
-  const { files, outputName, preset = "normal" } = req.body;
+  const { files, outputName, preset = "radio" } = req.body;
 
   const silenceMs = 150;
   const fadeMs = 150;
