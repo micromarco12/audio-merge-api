@@ -27,87 +27,60 @@ app.post("/merge-audio", async (req, res) => {
   const compression = true;      // Enable FFmpeg compression
 
   const compressor = compression
-    ? "-af 'acompressor=threshold=-20dB:ratio=3:attack=10:release=200:makeup=4'"
+    ? "acompressor=threshold=-20dB:ratio=3:attack=10:release=200:makeup=4"
     : "";
 
   const tempDir = `temp_${uuidv4()}`;
-  let paths = [];
+  let finalInputs = [];
 
   try {
     fs.mkdirSync(tempDir);
+
     for (let i = 0; i < files.length; i++) {
       const filePath = path.join(tempDir, `part${i}.mp3`);
-      console.log(`⬇️ Downloading: ${files[i]}`);
-      const response = await axios.get(files[i], { responseType: "stream" });
+      const fadePath = path.join(tempDir, `fade${i}.wav`);
+      const silencePath = path.join(tempDir, `silence${i}.wav`);
 
+      // Download file
+      const response = await axios.get(files[i], { responseType: "stream" });
       const writer = fs.createWriteStream(filePath);
       response.data.pipe(writer);
 
       await new Promise((resolve, reject) => {
-        writer.on("finish", () => {
-          console.log(`✅ Saved: ${filePath}`);
-          resolve();
-        });
-        writer.on("error", (err) => {
-          console.error(`❌ Error saving ${filePath}`, err.message);
-          reject(err);
-        });
+        writer.on("finish", resolve);
+        writer.on("error", reject);
       });
 
-      if (fadeMs > 0) {
-        const fadedPath = path.join(tempDir, `faded${i}.mp3`);
-        await new Promise((resolve, reject) => {
-          exec(`ffmpeg -i ${filePath} -af "afade=t=in:ss=0:d=${fadeMs / 1000},afade=t=out:st=0:d=${fadeMs / 1000}" -y ${fadedPath}`, (error) => {
-            if (error) reject(error);
-            else {
-              fs.unlinkSync(filePath);
-              paths.push(fadedPath);
-              resolve();
-            }
-          });
-        });
-      } else {
-        paths.push(filePath);
-      }
+      // Apply fade in/out
+      await new Promise((resolve, reject) => {
+        const fadeCmd = `ffmpeg -i ${filePath} -af "afade=t=in:st=0:d=${fadeMs / 1000},afade=t=out:st=0:d=${fadeMs / 1000}" -ar 44100 -ac 2 -y ${fadePath}`;
+        exec(fadeCmd, (err) => (err ? reject(err) : resolve()));
+      });
+      finalInputs.push(fadePath);
 
+      // Add silence after, except last file
       if (silenceMs > 0 && i < files.length - 1) {
-        const silencePath = path.join(tempDir, `silence${i}.mp3`);
         await new Promise((resolve, reject) => {
-          exec(`ffmpeg -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -t ${silenceMs / 1000} -q:a 9 -y ${silencePath}`, (error) => {
-            if (error) reject(error);
-            else {
-              paths.push(silencePath);
-              resolve();
-            }
-          });
+          const silenceCmd = `ffmpeg -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -t ${silenceMs / 1000} -y ${silencePath}`;
+          exec(silenceCmd, (err) => (err ? reject(err) : resolve()));
         });
+        finalInputs.push(silencePath);
       }
     }
 
-    const listFile = path.join(tempDir, "list.txt");
-    fs.writeFileSync(
-      listFile,
-      paths.map(p => `file '${path.basename(p)}'`).join("\n")
-    );
-    console.log("📃 Created list.txt:", listFile);
-    console.log("🧾 list.txt contents:\n", fs.readFileSync(listFile, 'utf8'));
-
-    const outputRaw = path.join(tempDir, `raw_${outputName}`);
-    await new Promise((resolve, reject) => {
-      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -acodec libmp3lame -y ${outputRaw}`, (error) => {
-        if (error) reject(error);
-        else resolve();
-      });
-    });
-
+    // Build input args and concat filter
+    const inputArgs = finalInputs.map((file, i) => `-i ${file}`).join(" ");
+    const concatFilter = `concat=n=${finalInputs.length}:v=0:a=1${compressor ? "," + compressor : ""}`;
     const finalPath = path.join(tempDir, outputName);
+
+    const ffmpegCmd = `ffmpeg ${inputArgs} -filter_complex "${concatFilter}" -acodec libmp3lame -y ${finalPath}`;
+    console.log("🎬 Running FFmpeg with:", ffmpegCmd);
+
     await new Promise((resolve, reject) => {
-      exec(`ffmpeg -i ${outputRaw} ${compressor} -y ${finalPath}`, (error) => {
-        if (error) reject(error);
-        else resolve();
-      });
+      exec(ffmpegCmd, (error) => (error ? reject(error) : resolve()));
     });
 
+    // Upload to Cloudinary
     const result = await cloudinary.uploader.upload(finalPath, {
       resource_type: "video",
       folder: "audio-webflow",
