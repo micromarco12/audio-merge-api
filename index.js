@@ -15,59 +15,79 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+const getAudioDuration = (filePath) => {
+  return new Promise((resolve, reject) => {
+    exec(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(parseFloat(stdout.trim()));
+    });
+  });
+};
+
 app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
   console.log("📦 Raw body:", req.body);
 
   const { files, outputName } = req.body;
+
+  const silenceMs = 300;
+  const fadeMs = 150;
+  const compression = true;
+
+  const compressor = compression
+    ? "acompressor=threshold=-20dB:ratio=3:attack=10:release=200:makeup=4"
+    : "";
+
   const tempDir = `temp_${uuidv4()}`;
-  let paths = [];
+  let finalInputs = [];
 
   try {
     fs.mkdirSync(tempDir);
+
     for (let i = 0; i < files.length; i++) {
       const filePath = path.join(tempDir, `part${i}.mp3`);
-      console.log(`⬇️ Downloading: ${files[i]}`);
-      const response = await axios.get(files[i], { responseType: "stream" });
+      const fadePath = path.join(tempDir, `fade${i}.wav`);
+      const silencePath = path.join(tempDir, `silence${i}.wav`);
 
+      const response = await axios.get(files[i], { responseType: "stream" });
       const writer = fs.createWriteStream(filePath);
       response.data.pipe(writer);
 
       await new Promise((resolve, reject) => {
-        writer.on("finish", () => {
-          console.log(`✅ Saved: ${filePath}`);
-          resolve();
-        });
-        writer.on("error", (err) => {
-          console.error(`❌ Error saving ${filePath}`, err.message);
-          reject(err);
-        });
+        writer.on("finish", resolve);
+        writer.on("error", reject);
       });
 
-      paths.push(filePath);
+      const duration = await getAudioDuration(filePath);
+      const fadeOutStart = Math.max(0, duration - fadeMs / 1000);
+
+      const fadeCmd = `ffmpeg -i "${filePath}" -af "afade=t=in:st=0:d=${fadeMs / 1000},afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${fadeMs / 1000}" -ar 44100 -ac 2 -y "${fadePath}"`;
+      await new Promise((resolve, reject) => {
+        exec(fadeCmd, (err) => (err ? reject(err) : resolve()));
+      });
+      finalInputs.push(fadePath);
+
+      if (silenceMs > 0 && i < files.length - 1) {
+        const silenceCmd = `ffmpeg -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -t ${silenceMs / 1000} -y "${silencePath}"`;
+        await new Promise((resolve, reject) => {
+          exec(silenceCmd, (err) => (err ? reject(err) : resolve()));
+        });
+        finalInputs.push(silencePath);
+      }
     }
 
-    const listFile = path.join(tempDir, "list.txt");
-    fs.writeFileSync(
-      listFile,
-      paths.map(p => `file '${path.basename(p)}'`).join("\n")
-    );
-    console.log("📃 Created list.txt:", listFile);
+    const inputArgs = finalInputs.map((file) => `-i "${file}"`).join(" ");
+    const concatFilter = `concat=n=${finalInputs.length}:v=0:a=1${compressor ? "," + compressor : ""}`;
+    const finalPath = path.join(tempDir, outputName);
 
-    console.log("🎬 Running FFmpeg...");
+    const ffmpegCmd = `ffmpeg ${inputArgs} -filter_complex "${concatFilter}" -acodec libmp3lame -y "${finalPath}"`;
+    console.log("🎬 Running FFmpeg with:", ffmpegCmd);
+
     await new Promise((resolve, reject) => {
-      exec(`cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -c copy ${outputName}`, (error) => {
-        if (error) {
-          console.error("🔥 FFmpeg error:", error.message);
-          reject(error);
-        } else {
-          console.log("✅ FFmpeg completed");
-          resolve();
-        }
-      });
+      exec(ffmpegCmd, (error) => (error ? reject(error) : resolve()));
     });
 
-    const result = await cloudinary.uploader.upload(path.join(tempDir, outputName), {
+    const result = await cloudinary.uploader.upload(finalPath, {
       resource_type: "video",
       folder: "audio-webflow",
       public_id: outputName.replace(".mp3", ""),
@@ -75,7 +95,6 @@ app.post("/merge-audio", async (req, res) => {
 
     console.log("☁️ Uploaded to Cloudinary");
 
-    // 🧹 Cloudinary cleanup: Delete all chunked files from FFmpeg-converter/
     try {
       const cleanup = await cloudinary.api.delete_resources_by_prefix("FFmpeg-converter/", {
         resource_type: "video",
