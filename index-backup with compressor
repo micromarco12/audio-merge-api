@@ -24,20 +24,30 @@ const getAudioDuration = (filePath) => {
   });
 };
 
+const getCompressorPreset = (presetName) => {
+  switch ((presetName || "").toLowerCase()) {
+    case "light":
+      return "acompressor=threshold=-15dB:ratio=2:attack=20:release=300:makeup=2";
+    case "radio":
+      return "acompressor=threshold=-20dB:ratio=4:attack=10:release=250:makeup=4";
+    case "crushed":
+      return "acompressor=threshold=-40dB:ratio=20:attack=1:release=50:makeup=15";
+    default:
+      return "acompressor=threshold=-18dB:ratio=3:attack=15:release=200:makeup=3"; // default "normal"
+  }
+};
+
 app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
   console.log("📦 Raw body:", req.body);
 
-  const { files, outputName } = req.body;
+  const { files, outputName, preset = "normal" } = req.body;
 
-  const silenceMs = 300;
+  const silenceMs = 150;
   const fadeMs = 150;
-  const compression = true;
+  const applyCompression = true;
 
-  const compressor = compression
-    ? "acompressor=threshold=-20dB:ratio=3:attack=10:release=200:makeup=4"
-    : "";
-
+  const compressor = applyCompression ? getCompressorPreset(preset) : "";
   const tempDir = `temp_${uuidv4()}`;
   let finalInputs = [];
 
