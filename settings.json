@@ -1,5 +1,6 @@
 {
-  "silenceMs": 300,
-  "fadeMs": 2000,
-  "preset": "normal"
+  "silenceMs": 1571,
+  "fadeMs": 236,
+  "preset": "radio",
+  "outputName": ""
 }
