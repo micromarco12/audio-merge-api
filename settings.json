@@ -1,6 +1,6 @@
 {
-  "silenceMs": 304,
-  "fadeMs": 132,
+  "silenceMs": 300,
+  "fadeMs": 2000,
   "preset": "normal",
   "outputName": ""
 }
