@@ -9,6 +9,9 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
+// Load audio processing settings from settings.json
+const config = require("./settings.json");
+
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -41,10 +44,11 @@ app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
   console.log("📦 Raw body:", req.body);
 
-  const { files, outputName, preset = "radio" } = req.body;
+  const { files, outputName } = req.body;
 
-  const silenceMs = 300;
-  const fadeMs = 150;
+  const silenceMs = config.silenceMs || 300;
+  const fadeMs = config.fadeMs || 150;
+  const preset = config.preset || "normal";
   const applyCompression = true;
 
   const compressor = applyCompression ? getCompressorPreset(preset) : "";
