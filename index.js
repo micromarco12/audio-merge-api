@@ -9,7 +9,6 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
-// Load audio processing settings from settings.json
 const config = require("./settings.json");
 
 cloudinary.config({
@@ -36,7 +35,7 @@ const getCompressorPreset = (presetName) => {
     case "crushed":
       return "acompressor=threshold=-40dB:ratio=20:attack=1:release=50:makeup=15";
     default:
-      return "acompressor=threshold=-18dB:ratio=3:attack=15:release=200:makeup=3"; // default "normal"
+      return "acompressor=threshold=-18dB:ratio=3:attack=15:release=200:makeup=3";
   }
 };
 
@@ -58,8 +57,11 @@ app.post("/merge-audio", async (req, res) => {
   try {
     fs.mkdirSync(tempDir);
 
+    const detectedExt = path.extname(files[0]).toLowerCase().replace(".", "") || "mp3";
+    const audioCodec = detectedExt === "wav" ? "pcm_s16le" : "libmp3lame";
+
     for (let i = 0; i < files.length; i++) {
-      const filePath = path.join(tempDir, `part${i}.mp3`);
+      const filePath = path.join(tempDir, `part${i}.${detectedExt}`);
       const fadePath = path.join(tempDir, `fade${i}.wav`);
       const silencePath = path.join(tempDir, `silence${i}.wav`);
 
@@ -94,7 +96,7 @@ app.post("/merge-audio", async (req, res) => {
     const concatFilter = `concat=n=${finalInputs.length}:v=0:a=1${compressor ? "," + compressor : ""}`;
     const finalPath = path.join(tempDir, outputName);
 
-    const ffmpegCmd = `ffmpeg ${inputArgs} -filter_complex "${concatFilter}" -acodec libmp3lame -y "${finalPath}"`;
+    const ffmpegCmd = `ffmpeg ${inputArgs} -filter_complex "${concatFilter}" -acodec ${audioCodec} -y "${finalPath}"`;
     console.log("🎬 Running FFmpeg with:", ffmpegCmd);
 
     await new Promise((resolve, reject) => {
@@ -104,7 +106,7 @@ app.post("/merge-audio", async (req, res) => {
     const result = await cloudinary.uploader.upload(finalPath, {
       resource_type: "video",
       folder: "audio-webflow",
-      public_id: outputName.replace(".mp3", ""),
+      public_id: outputName.replace(/\.(mp3|wav)$/, ""),
     });
 
     console.log("☁️ Uploaded to Cloudinary");
