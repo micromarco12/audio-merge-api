@@ -2,5 +2,7 @@
   "silenceMs": 300,
   "fadeMs": 150,
   "preset": "light",
+  "applyCompression": false,
+  "outputChannels": 1,
   "outputName": ""
 }
