@@ -48,7 +48,8 @@ app.post("/merge-audio", async (req, res) => {
   const silenceMs = config.silenceMs || 300;
   const fadeMs = config.fadeMs || 150;
   const preset = config.preset || "normal";
-  const applyCompression = true;
+  const applyCompression = config.applyCompression !== false;
+  const outputChannels = config.outputChannels === 1 ? 1 : 2;
 
   const compressor = applyCompression ? getCompressorPreset(preset) : "";
   const tempDir = `temp_${uuidv4()}`;
@@ -77,14 +78,15 @@ app.post("/merge-audio", async (req, res) => {
       const duration = await getAudioDuration(filePath);
       const fadeOutStart = Math.max(0, duration - fadeMs / 1000);
 
-      const fadeCmd = `ffmpeg -i "${filePath}" -af "afade=t=in:st=0:d=${fadeMs / 1000},afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${fadeMs / 1000}" -ar 44100 -ac 2 -y "${fadePath}"`;
+      const fadeCmd = `ffmpeg -i "${filePath}" -af "afade=t=in:st=0:d=${fadeMs / 1000},afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${fadeMs / 1000}" -ar 44100 -ac ${outputChannels} -y "${fadePath}"`;
       await new Promise((resolve, reject) => {
         exec(fadeCmd, (err) => (err ? reject(err) : resolve()));
       });
       finalInputs.push(fadePath);
 
       if (silenceMs > 0 && i < files.length - 1) {
-        const silenceCmd = `ffmpeg -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -t ${silenceMs / 1000} -y "${silencePath}"`;
+        const channelLayout = outputChannels === 1 ? "mono" : "stereo";
+        const silenceCmd = `ffmpeg -f lavfi -i anullsrc=channel_layout=${channelLayout}:sample_rate=44100 -t ${silenceMs / 1000} -y "${silencePath}"`;
         await new Promise((resolve, reject) => {
           exec(silenceCmd, (err) => (err ? reject(err) : resolve()));
         });
