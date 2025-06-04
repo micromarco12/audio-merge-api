@@ -64,7 +64,6 @@ app.post("/merge-audio", async (req, res) => {
     finalPath = path.join(tempDir, outputName);
 
     if (!processingEnabled) {
-      // 🛑 Raw concat mode
       const fileList = [];
 
       for (let i = 0; i < files.length; i++) {
@@ -96,7 +95,6 @@ app.post("/merge-audio", async (req, res) => {
       });
 
     } else {
-      // ✅ Full processing path
       const compressor = applyCompression ? getCompressorPreset(preset) : "";
       let finalInputs = [];
 
@@ -152,6 +150,18 @@ app.post("/merge-audio", async (req, res) => {
     });
 
     console.log("☁️ Uploaded to Cloudinary:", result.secure_url);
+
+    // ✅ Delete Cloudinary chunks from FFmpeg-converter folder
+    try {
+      const cleanup = await cloudinary.api.delete_resources_by_prefix("FFmpeg-converter/", {
+        resource_type: "video",
+        invalidate: true,
+      });
+      console.log("🧹 Deleted chunked files from Cloudinary:", cleanup);
+    } catch (cleanupError) {
+      console.error("❌ Cloudinary cleanup failed:", cleanupError.message);
+    }
+
     res.json({ finalUrl: result.secure_url });
 
   } catch (err) {
@@ -161,10 +171,10 @@ app.post("/merge-audio", async (req, res) => {
     try {
       if (tempDir && fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
-        console.log("🧹 Temp files cleaned up");
+        console.log("🧹 Local temp files cleaned up");
       }
     } catch (cleanupErr) {
-      console.warn("⚠️ Cleanup failed:", cleanupErr.message);
+      console.warn("⚠️ Local cleanup failed:", cleanupErr.message);
     }
   }
 });
