@@ -4,6 +4,6 @@
   "preset": "light",
   "applyCompression": false,
   "outputChannels": 1,
-  "processingEnabled": true,
+  "processingEnabled": false,
   "outputName": ""
 }
