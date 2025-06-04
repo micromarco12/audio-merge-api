@@ -45,65 +45,100 @@ app.post("/merge-audio", async (req, res) => {
 
   const { files, outputName } = req.body;
 
-  const silenceMs = config.silenceMs || 300;
-  const fadeMs = config.fadeMs || 150;
-  const preset = config.preset || "normal";
-  const applyCompression = config.applyCompression !== false;
-  const outputChannels = config.outputChannels === 1 ? 1 : 2;
+  const {
+    silenceMs = 300,
+    fadeMs = 150,
+    preset = "normal",
+    applyCompression = true,
+    outputChannels = 2,
+    processingEnabled = true
+  } = config;
 
-  const compressor = applyCompression ? getCompressorPreset(preset) : "";
   const tempDir = `temp_${uuidv4()}`;
-  let finalInputs = [];
+  fs.mkdirSync(tempDir);
 
   try {
-    fs.mkdirSync(tempDir);
-
     const detectedExt = path.extname(files[0]).toLowerCase().replace(".", "") || "mp3";
     const audioCodec = detectedExt === "wav" ? "pcm_s16le" : "libmp3lame";
-
-    for (let i = 0; i < files.length; i++) {
-      const filePath = path.join(tempDir, `part${i}.${detectedExt}`);
-      const fadePath = path.join(tempDir, `fade${i}.wav`);
-      const silencePath = path.join(tempDir, `silence${i}.wav`);
-
-      const response = await axios.get(files[i], { responseType: "stream" });
-      const writer = fs.createWriteStream(filePath);
-      response.data.pipe(writer);
-
-      await new Promise((resolve, reject) => {
-        writer.on("finish", resolve);
-        writer.on("error", reject);
-      });
-
-      const duration = await getAudioDuration(filePath);
-      const fadeOutStart = Math.max(0, duration - fadeMs / 1000);
-
-      const fadeCmd = `ffmpeg -i "${filePath}" -af "afade=t=in:st=0:d=${fadeMs / 1000},afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${fadeMs / 1000}" -ar 44100 -ac ${outputChannels} -y "${fadePath}"`;
-      await new Promise((resolve, reject) => {
-        exec(fadeCmd, (err) => (err ? reject(err) : resolve()));
-      });
-      finalInputs.push(fadePath);
-
-      if (silenceMs > 0 && i < files.length - 1) {
-        const channelLayout = outputChannels === 1 ? "mono" : "stereo";
-        const silenceCmd = `ffmpeg -f lavfi -i anullsrc=channel_layout=${channelLayout}:sample_rate=44100 -t ${silenceMs / 1000} -y "${silencePath}"`;
-        await new Promise((resolve, reject) => {
-          exec(silenceCmd, (err) => (err ? reject(err) : resolve()));
-        });
-        finalInputs.push(silencePath);
-      }
-    }
-
-    const inputArgs = finalInputs.map((file) => `-i "${file}"`).join(" ");
-    const concatFilter = `concat=n=${finalInputs.length}:v=0:a=1${compressor ? "," + compressor : ""}`;
     const finalPath = path.join(tempDir, outputName);
 
-    const ffmpegCmd = `ffmpeg ${inputArgs} -filter_complex "${concatFilter}" -acodec ${audioCodec} -y "${finalPath}"`;
-    console.log("🎬 Running FFmpeg with:", ffmpegCmd);
+    if (!processingEnabled) {
+      // 🛑 No processing — just raw concat
+      const fileList = [];
 
-    await new Promise((resolve, reject) => {
-      exec(ffmpegCmd, (error) => (error ? reject(error) : resolve()));
-    });
+      for (let i = 0; i < files.length; i++) {
+        const localPath = path.join(tempDir, `part${i}.${detectedExt}`);
+        const response = await axios.get(files[i], { responseType: "stream" });
+        const writer = fs.createWriteStream(localPath);
+        response.data.pipe(writer);
+        await new Promise((resolve, reject) => {
+          writer.on("finish", resolve);
+          writer.on("error", reject);
+        });
+        fileList.push(localPath);
+      }
+
+      const listPath = path.join(tempDir, "list.txt");
+      fs.writeFileSync(listPath, fileList.map(p => `file '${p}'`).join("\n"));
+
+      const rawMergeCmd = `ffmpeg -f concat -safe 0 -i "${listPath}" -acodec ${audioCodec} -y "${finalPath}"`;
+      console.log("🧵 Raw merge:", rawMergeCmd);
+      await new Promise((resolve, reject) => {
+        exec(rawMergeCmd, (err, stdout, stderr) => {
+          console.log(stderr);
+          err ? reject(err) : resolve();
+        });
+      });
+
+    } else {
+      // ✅ Full processing path (fade, silence, compression)
+      const compressor = applyCompression ? getCompressorPreset(preset) : "";
+      let finalInputs = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const filePath = path.join(tempDir, `part${i}.${detectedExt}`);
+        const fadePath = path.join(tempDir, `fade${i}.wav`);
+        const silencePath = path.join(tempDir, `silence${i}.wav`);
+
+        const response = await axios.get(files[i], { responseType: "stream" });
+        const writer = fs.createWriteStream(filePath);
+        response.data.pipe(writer);
+        await new Promise((resolve, reject) => {
+          writer.on("finish", resolve);
+          writer.on("error", reject);
+        });
+
+        const duration = await getAudioDuration(filePath);
+        const fadeOutStart = Math.max(0, duration - fadeMs / 1000);
+
+        const fadeCmd = `ffmpeg -i "${filePath}" -af "afade=t=in:st=0:d=${fadeMs / 1000},afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${fadeMs / 1000}" -ar 44100 -ac ${outputChannels} -y "${fadePath}"`;
+        await new Promise((resolve, reject) => {
+          exec(fadeCmd, (err) => (err ? reject(err) : resolve()));
+        });
+        finalInputs.push(fadePath);
+
+        if (silenceMs > 0 && i < files.length - 1) {
+          const channelLayout = outputChannels === 1 ? "mono" : "stereo";
+          const silenceCmd = `ffmpeg -f lavfi -i anullsrc=channel_layout=${channelLayout}:sample_rate=44100 -t ${silenceMs / 1000} -y "${silencePath}"`;
+          await new Promise((resolve, reject) => {
+            exec(silenceCmd, (err) => (err ? reject(err) : resolve()));
+          });
+          finalInputs.push(silencePath);
+        }
+      }
+
+      const inputArgs = finalInputs.map((file) => `-i "${file}"`).join(" ");
+      const concatFilter = `concat=n=${finalInputs.length}:v=0:a=1${compressor ? "," + compressor : ""}`;
+      const fullCmd = `ffmpeg ${inputArgs} -filter_complex "${concatFilter}" -acodec ${audioCodec} -y "${finalPath}"`;
+
+      console.log("🎬 Full processing FFmpeg:", fullCmd);
+      await new Promise((resolve, reject) => {
+        exec(fullCmd, (err, stdout, stderr) => {
+          console.log(stderr);
+          err ? reject(err) : resolve();
+        });
+      });
+    }
 
     const result = await cloudinary.uploader.upload(finalPath, {
       resource_type: "video",
@@ -111,30 +146,15 @@ app.post("/merge-audio", async (req, res) => {
       public_id: outputName.replace(/\.(mp3|wav)$/, ""),
     });
 
-    console.log("☁️ Uploaded to Cloudinary");
-
-    try {
-      const cleanup = await cloudinary.api.delete_resources_by_prefix("FFmpeg-converter/", {
-        resource_type: "video",
-        invalidate: true
-      });
-      console.log("🧹 Deleted chunked files:", cleanup);
-    } catch (cleanupError) {
-      console.error("❌ Cloudinary cleanup failed:", cleanupError.message);
-    }
-
+    console.log("☁️ Uploaded to Cloudinary:", result.secure_url);
     res.json({ finalUrl: result.secure_url });
 
   } catch (err) {
     console.error("🔥 Server error:", err.message);
     res.status(500).json({ error: err.message });
   } finally {
-    try {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-      console.log("🧹 Temp files cleaned up");
-    } catch (cleanupErr) {
-      console.warn("⚠️ Cleanup failed:", cleanupErr.message);
-    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    console.log("🧹 Temp files cleaned up");
   }
 });
 
