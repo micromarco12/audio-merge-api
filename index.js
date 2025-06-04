@@ -60,10 +60,10 @@ app.post("/merge-audio", async (req, res) => {
   try {
     const detectedExt = path.extname(files[0]).toLowerCase().replace(".", "") || "mp3";
     const audioCodec = detectedExt === "wav" ? "pcm_s16le" : "libmp3lame";
-    const finalPath = path.join(tempDir, outputName);
+    let finalPath = path.join(tempDir, outputName);
 
     if (!processingEnabled) {
-      // 🛑 No processing — clean concat
+      // 🛑 Raw concat mode
       const fileList = [];
 
       for (let i = 0; i < files.length; i++) {
@@ -94,8 +94,11 @@ app.post("/merge-audio", async (req, res) => {
         });
       });
 
+      // ✅ Set correct final path for upload/cleanup
+      finalPath = path.join(tempDir, outputName);
+
     } else {
-      // ✅ Full processing
+      // ✅ Full processing path
       const compressor = applyCompression ? getCompressorPreset(preset) : "";
       let finalInputs = [];
 
