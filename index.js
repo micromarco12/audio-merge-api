@@ -63,11 +63,13 @@ app.post("/merge-audio", async (req, res) => {
     const finalPath = path.join(tempDir, outputName);
 
     if (!processingEnabled) {
-      // 🛑 No processing — just raw concat
+      // 🛑 No processing — clean concat
       const fileList = [];
 
       for (let i = 0; i < files.length; i++) {
-        const localPath = path.join(tempDir, `part${i}.${detectedExt}`);
+        const localName = `part${i}.${detectedExt}`;
+        const localPath = path.join(tempDir, localName);
+
         const response = await axios.get(files[i], { responseType: "stream" });
         const writer = fs.createWriteStream(localPath);
         response.data.pipe(writer);
@@ -75,13 +77,15 @@ app.post("/merge-audio", async (req, res) => {
           writer.on("finish", resolve);
           writer.on("error", reject);
         });
-        fileList.push(localPath);
+
+        fileList.push(localName);
       }
 
-      const listPath = path.join(tempDir, "list.txt");
-      fs.writeFileSync(listPath, fileList.map(p => `file '${p}'`).join("\n"));
+      const listFilePath = path.join(tempDir, "list.txt");
+      const listContent = fileList.map(filename => `file '${filename}'`).join("\n");
+      fs.writeFileSync(listFilePath, listContent);
 
-      const rawMergeCmd = `ffmpeg -f concat -safe 0 -i "${listPath}" -acodec ${audioCodec} -y "${finalPath}"`;
+      const rawMergeCmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -acodec ${audioCodec} -y "${outputName}"`;
       console.log("🧵 Raw merge:", rawMergeCmd);
       await new Promise((resolve, reject) => {
         exec(rawMergeCmd, (err, stdout, stderr) => {
@@ -91,7 +95,7 @@ app.post("/merge-audio", async (req, res) => {
       });
 
     } else {
-      // ✅ Full processing path (fade, silence, compression)
+      // ✅ Full processing
       const compressor = applyCompression ? getCompressorPreset(preset) : "";
       let finalInputs = [];
 
