@@ -55,12 +55,13 @@ app.post("/merge-audio", async (req, res) => {
   } = config;
 
   const tempDir = `temp_${uuidv4()}`;
+  let finalPath = "";
   fs.mkdirSync(tempDir);
 
   try {
     const detectedExt = path.extname(files[0]).toLowerCase().replace(".", "") || "mp3";
     const audioCodec = detectedExt === "wav" ? "pcm_s16le" : "libmp3lame";
-    let finalPath = path.join(tempDir, outputName);
+    finalPath = path.join(tempDir, outputName);
 
     if (!processingEnabled) {
       // 🛑 Raw concat mode
@@ -93,9 +94,6 @@ app.post("/merge-audio", async (req, res) => {
           err ? reject(err) : resolve();
         });
       });
-
-      // ✅ Set correct final path for upload/cleanup
-      finalPath = path.join(tempDir, outputName);
 
     } else {
       // ✅ Full processing path
@@ -160,8 +158,14 @@ app.post("/merge-audio", async (req, res) => {
     console.error("🔥 Server error:", err.message);
     res.status(500).json({ error: err.message });
   } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    console.log("🧹 Temp files cleaned up");
+    try {
+      if (tempDir && fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        console.log("🧹 Temp files cleaned up");
+      }
+    } catch (cleanupErr) {
+      console.warn("⚠️ Cleanup failed:", cleanupErr.message);
+    }
   }
 });
 
