@@ -58,8 +58,8 @@ app.post("/merge-audio", async (req, res) => {
   } = config;
 
   const tempDir = `temp_${uuidv4()}`;
-  let finalPath = "";
   fs.mkdirSync(tempDir);
+  let finalPath = "";
 
   try {
     const detectedExt = path.extname(files[0]).toLowerCase().replace(".", "") || "mp3";
@@ -73,23 +73,28 @@ app.post("/merge-audio", async (req, res) => {
       const fileList = [];
 
       for (let i = 0; i < files.length; i++) {
-        const localName = `part${i}.${detectedExt}`;
-        const localPath = path.join(tempDir, localName);
+        const inputPath = path.join(tempDir, `raw${i}.${detectedExt}`);
+        const cleanPath = path.join(tempDir, `part${i}.${detectedExt}`);
 
         const response = await axios.get(files[i], { responseType: "stream" });
-        const writer = fs.createWriteStream(localPath);
+        const writer = fs.createWriteStream(inputPath);
         response.data.pipe(writer);
         await new Promise((resolve, reject) => {
           writer.on("finish", resolve);
           writer.on("error", reject);
         });
 
-        fileList.push(localName);
+        // Clean the file via re-encode
+        const fixCmd = `ffmpeg -y -i "${inputPath}" -ar 44100 -ac 1 "${cleanPath}"`;
+        await new Promise((resolve, reject) => {
+          exec(fixCmd, (err) => (err ? reject(err) : resolve()));
+        });
+
+        fileList.push(`part${i}.${detectedExt}`);
       }
 
       const listFilePath = path.join(tempDir, "list.txt");
-      const listContent = fileList.map(filename => `file '${filename}'`).join("\n");
-      fs.writeFileSync(listFilePath, listContent);
+      fs.writeFileSync(listFilePath, fileList.map(f => `file '${f}'`).join("\n"));
 
       const rawMergeCmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -acodec ${audioCodec} ${bitrateOption} -y "${path.basename(finalPath)}"`;
       console.log("🧵 Raw merge:", rawMergeCmd);
@@ -105,25 +110,32 @@ app.post("/merge-audio", async (req, res) => {
       let finalInputs = [];
 
       for (let i = 0; i < files.length; i++) {
-        const filePath = path.join(tempDir, `part${i}.${detectedExt}`);
+        const inputPath = path.join(tempDir, `raw${i}.${detectedExt}`);
+        const cleanPath = path.join(tempDir, `clean${i}.wav`);
         const fadePath = path.join(tempDir, `fade${i}.wav`);
         const silencePath = path.join(tempDir, `silence${i}.wav`);
 
         const response = await axios.get(files[i], { responseType: "stream" });
-        const writer = fs.createWriteStream(filePath);
+        const writer = fs.createWriteStream(inputPath);
         response.data.pipe(writer);
         await new Promise((resolve, reject) => {
           writer.on("finish", resolve);
           writer.on("error", reject);
         });
 
-        const duration = await getAudioDuration(filePath);
-        const fadeOutStart = Math.max(0, duration - fadeMs / 1000);
+        // Clean the input
+        const fixCmd = `ffmpeg -y -i "${inputPath}" -ar 44100 -ac ${outputChannels} "${cleanPath}"`;
+        await new Promise((resolve, reject) => {
+          exec(fixCmd, (err) => (err ? reject(err) : resolve()));
+        });
 
-        const fadeCmd = `ffmpeg -i "${filePath}" -af "afade=t=in:st=0:d=${fadeMs / 1000},afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${fadeMs / 1000}" -ar 44100 -ac ${outputChannels} -y "${fadePath}"`;
+        const duration = await getAudioDuration(cleanPath);
+        const fadeOutStart = Math.max(0, duration - fadeMs / 1000);
+        const fadeCmd = `ffmpeg -i "${cleanPath}" -af "afade=t=in:st=0:d=${fadeMs / 1000},afade=t=out:st=${fadeOutStart.toFixed(2)}:d=${fadeMs / 1000}" -ar 44100 -ac ${outputChannels} -y "${fadePath}"`;
         await new Promise((resolve, reject) => {
           exec(fadeCmd, (err) => (err ? reject(err) : resolve()));
         });
+
         finalInputs.push(fadePath);
 
         if (silenceMs > 0 && i < files.length - 1) {
@@ -136,7 +148,7 @@ app.post("/merge-audio", async (req, res) => {
         }
       }
 
-      const inputArgs = finalInputs.map((file) => `-i "${file}"`).join(" ");
+      const inputArgs = finalInputs.map(f => `-i "${f}"`).join(" ");
       const concatFilter = `concat=n=${finalInputs.length}:v=0:a=1${compressor ? "," + compressor : ""}`;
       const fullCmd = `ffmpeg ${inputArgs} -filter_complex "${concatFilter}" -acodec ${audioCodec} ${bitrateOption} -y "${finalPath}"`;
 
