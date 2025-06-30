@@ -65,7 +65,7 @@ app.post("/merge-audio", async (req, res) => {
     const detectedExt = path.extname(files[0]).toLowerCase().replace(".", "") || "mp3";
     const targetExt = ["mp3", "wav"].includes((outputFormat || "").toLowerCase()) ? outputFormat.toLowerCase() : detectedExt;
     const audioCodec = targetExt === "wav" ? "pcm_s16le" : "libmp3lame";
-    const bitrateOption = targetExt === "mp3" ? `-b:a ${bitrate || "192k"}` : "";
+    const bitrateOption = targetExt === "mp3" ? `-b:a ${bitrate || "192k"} -compression_level 0 -write_xing 0 -abr 0` : "";
 
     finalPath = path.join(tempDir, `${outputName.replace(/\.(mp3|wav)?$/, "")}.${targetExt}`);
 
