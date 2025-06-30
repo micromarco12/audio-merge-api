@@ -19,10 +19,13 @@ cloudinary.config({
 
 const getAudioDuration = (filePath) => {
   return new Promise((resolve, reject) => {
-    exec(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(parseFloat(stdout.trim()));
-    });
+    exec(
+      `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
+      (error, stdout) => {
+        if (error) reject(error);
+        else resolve(parseFloat(stdout.trim()));
+      }
+    );
   });
 };
 
@@ -43,7 +46,7 @@ app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
   console.log("📦 Raw body:", req.body);
 
-  const { files, outputName } = req.body;
+  const { files, outputName, outputFormat } = req.body;
 
   const {
     silenceMs = 300,
@@ -60,8 +63,11 @@ app.post("/merge-audio", async (req, res) => {
 
   try {
     const detectedExt = path.extname(files[0]).toLowerCase().replace(".", "") || "mp3";
-    const audioCodec = detectedExt === "wav" ? "pcm_s16le" : "libmp3lame";
-    finalPath = path.join(tempDir, outputName);
+    const requestedFormat = (outputFormat || "").toLowerCase();
+    const outputExt = ["mp3", "wav"].includes(requestedFormat) ? requestedFormat : detectedExt;
+    const audioCodec = outputExt === "wav" ? "pcm_s16le" : "libmp3lame";
+
+    finalPath = path.join(tempDir, `${outputName.replace(/\.(mp3|wav)?$/, "")}.${outputExt}`);
 
     if (!processingEnabled) {
       const fileList = [];
@@ -85,7 +91,7 @@ app.post("/merge-audio", async (req, res) => {
       const listContent = fileList.map(filename => `file '${filename}'`).join("\n");
       fs.writeFileSync(listFilePath, listContent);
 
-      const rawMergeCmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -acodec ${audioCodec} -y "${outputName}"`;
+      const rawMergeCmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -acodec ${audioCodec} -y "${path.basename(finalPath)}"`;
       console.log("🧵 Raw merge:", rawMergeCmd);
       await new Promise((resolve, reject) => {
         exec(rawMergeCmd, (err, stdout, stderr) => {
@@ -151,7 +157,6 @@ app.post("/merge-audio", async (req, res) => {
 
     console.log("☁️ Uploaded to Cloudinary:", result.secure_url);
 
-    // ✅ Delete Cloudinary chunks from FFmpeg-converter folder
     try {
       const cleanup = await cloudinary.api.delete_resources_by_prefix("FFmpeg-converter/", {
         resource_type: "video",
