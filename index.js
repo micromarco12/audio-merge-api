@@ -46,7 +46,7 @@ app.post("/merge-audio", async (req, res) => {
   console.log("🟡 Incoming request");
   console.log("📦 Raw body:", req.body);
 
-  const { files, outputName, outputFormat } = req.body;
+  const { files, outputName, outputFormat, bitrate } = req.body;
 
   const {
     silenceMs = 300,
@@ -63,11 +63,11 @@ app.post("/merge-audio", async (req, res) => {
 
   try {
     const detectedExt = path.extname(files[0]).toLowerCase().replace(".", "") || "mp3";
-    const requestedFormat = (outputFormat || "").toLowerCase();
-    const outputExt = ["mp3", "wav"].includes(requestedFormat) ? requestedFormat : detectedExt;
-    const audioCodec = outputExt === "wav" ? "pcm_s16le" : "libmp3lame";
+    const targetExt = ["mp3", "wav"].includes((outputFormat || "").toLowerCase()) ? outputFormat.toLowerCase() : detectedExt;
+    const audioCodec = targetExt === "wav" ? "pcm_s16le" : "libmp3lame";
+    const bitrateOption = targetExt === "mp3" ? `-b:a ${bitrate || "192k"}` : "";
 
-    finalPath = path.join(tempDir, `${outputName.replace(/\.(mp3|wav)?$/, "")}.${outputExt}`);
+    finalPath = path.join(tempDir, `${outputName.replace(/\.(mp3|wav)?$/, "")}.${targetExt}`);
 
     if (!processingEnabled) {
       const fileList = [];
@@ -91,7 +91,7 @@ app.post("/merge-audio", async (req, res) => {
       const listContent = fileList.map(filename => `file '${filename}'`).join("\n");
       fs.writeFileSync(listFilePath, listContent);
 
-      const rawMergeCmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -acodec ${audioCodec} -y "${path.basename(finalPath)}"`;
+      const rawMergeCmd = `cd ${tempDir} && ffmpeg -f concat -safe 0 -i list.txt -acodec ${audioCodec} ${bitrateOption} -y "${path.basename(finalPath)}"`;
       console.log("🧵 Raw merge:", rawMergeCmd);
       await new Promise((resolve, reject) => {
         exec(rawMergeCmd, (err, stdout, stderr) => {
@@ -138,7 +138,7 @@ app.post("/merge-audio", async (req, res) => {
 
       const inputArgs = finalInputs.map((file) => `-i "${file}"`).join(" ");
       const concatFilter = `concat=n=${finalInputs.length}:v=0:a=1${compressor ? "," + compressor : ""}`;
-      const fullCmd = `ffmpeg ${inputArgs} -filter_complex "${concatFilter}" -acodec ${audioCodec} -y "${finalPath}"`;
+      const fullCmd = `ffmpeg ${inputArgs} -filter_complex "${concatFilter}" -acodec ${audioCodec} ${bitrateOption} -y "${finalPath}"`;
 
       console.log("🎬 Full processing FFmpeg:", fullCmd);
       await new Promise((resolve, reject) => {
